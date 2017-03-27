@@ -1,0 +1,17 @@
+*~
+*img
+*tgz
+*pyc
+sasn/lib
+sasn/confgen
+sasn/*.log
+*.txt
+sasn/*.so
+scapy
+sasn/dpisim
+sasn/dpisim_lib
+sasn/dpisim_libs
+sasn/*.plg
+results
+sasn/delta_conf
+sasn/tmtool

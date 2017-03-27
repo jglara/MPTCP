@@ -1,0 +1,89 @@
+ardware
+  profile entry
+  memory
+    server0 1
+    backup-server 1
+  end
+end
+
+# Cluster config
+
+server0:
+  hostname PPU-1
+backup-server:
+  hostname backup-PPU
+
+all:
+
+cluster
+  num-servers 1
+  vrid 20
+
+  external-vlans
+   trunk               usertrunk  41-43
+
+    # vlan-name {vlan-tag | untagged} {trunk-name | port}
+    user-ext            340 usertrunk,48
+    internet-ext        40  usertrunk,48
+    management-ext      141 usertrunk,48
+  end
+
+  switch-addressing
+    ip address switch1 10.3.4.240/24 vlan user-ext
+    ip address switch2 10.3.4.241/24 vlan user-ext
+
+    ip address switch1 10.1.4.240/24 vlan internet-ext
+    ip address switch2 10.1.4.241/24 vlan internet-ext
+
+    ip address switch1 10.50.140.1/27 vlan management-ext
+    ip address switch2 10.50.140.2/27 vlan management-ext
+
+    ip address switch1 10.50.170.1/24 vlan management-int
+    ip address switch2 10.50.170.2/24 vlan management-int
+
+  internal-base-ip 192.168.200.0
+  end
+
+  switch-routing
+  end
+end
+
+interface vlan bond0 management-int
+  server0:
+    ip address 10.50.170.10/24 management
+  backup-server:
+    ip address 10.50.170.14/24 management
+end
+
+interface vlan eth4 radius-int
+  backup-server:
+    ip address 10.50.190.14/27 virtual
+end
+
+interface vlan eth6 radius-int
+  backup-server:
+    ip address 10.50.191.14/27 virtual
+end
+
+all:
+
+radius
+  pool   10.250.0.0/16 via 10.3.4.242
+  client 10.205.4.9    via 10.3.4.242
+  server 10.205.5.3    via 10.1.4.242
+  rd-backup         server0
+end
+
+snmp
+  destination 172.15.17.25
+end
+
+
+## Content type
+
+content-type 0
+  label DEFAULT
+  pattern default
+  end
+end
+
