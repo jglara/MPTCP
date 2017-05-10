@@ -46,21 +46,35 @@ class MyRouter( Node ):
         super( MyRouter, self).config( **params )
         self.cmd( 'echo $SHELL ; for d in $(ip li | awk \'BEGIN {FS=":"} /^[0-9]+:(.*):/ {print $2}\'  | grep -v lo | cut -d\'@\' -f 1);do ethtool -K $d tso off gso off tx off rx off; done')
 
-        self.cmd( 'echo $SHELL ; for d in $(ip li | awk \'BEGIN {FS=":"} /^[0-9]+:(.*):/ {print $2}\'  | grep -v lo | cut -d\'@\' -f 1);do tshark -i $d -w /tmp/$d.cap & echo "tshark $d" ; done')
+        self.cmd( 'echo $SHELL ; for d in $(ip li | awk \'BEGIN {{FS=":"}} /^[0-9]+:(.*):/ {{print $2}}\'  | grep -v lo | cut -d\'@\' -f 1);do tshark -i $d -w {0}/$d.cap & echo "tshark $d" ; done'.format(args.dir))
 
 
-        # Add a route the reach sender network
-        #self.cmd( 'ip route add 192.168.12.0/24 via 172.16.99.52' )
-
-        # Enable forwarding on the router
-        #self.cmd( 'sysctl net.ipv4.ip_forward=1' )
-        self.proc = self.popen( '/home/mininet/git/MPTCP/sasn/dpisim.sh basic.conf default')
+#        self.proc = self.popen( '/home/mininet/git/MPTCP/sasn/dpisim.sh basic.conf default')
+        self.proc = self.popen( '/home/mininet/git/MPTCP/sasn/dpisim_2.sh dpisim_config.yaml')
 
     def terminate( self ):
-        #self.cmd( 'sysctl net.ipv4.ip_forward=0' )
         self.popen("pgrep -f dpisim | xargs kill -9", shell=True).wait()
         self.popen("pgrep -f tshark | xargs kill -9", shell=True).wait()
         super( MyRouter, self ).terminate()
+
+
+class MyForwardingRouter( Node ):
+    "A Node with routing."
+
+    def config( self, **params ):
+        super( MyForwardingRouter, self).config( **params )
+        self.cmd( 'echo $SHELL ; for d in $(ip li | awk \'BEGIN {FS=":"} /^[0-9]+:(.*):/ {print $2}\'  | grep -v lo | cut -d\'@\' -f 1);do ethtool -K $d tso off gso off tx off rx off; done')
+
+#        self.cmd( 'echo $SHELL ; for d in $(ip li | awk \'BEGIN {FS=":"} /^[0-9]+:(.*):/ {print $2}\'  | grep -v lo | cut -d\'@\' -f 1);do tshark -i $d -w /tmp/$d.cap & echo "tshark $d" ; done')
+
+
+        # Enable forwarding on the router
+        self.cmd( 'sysctl net.ipv4.ip_forward=1' )
+
+    def terminate( self ):
+        self.cmd( 'sysctl net.ipv4.ip_forward=0' )
+        super( MyForwardingRouter, self ).terminate()
+
 
 
 class MyHost( Node ):
@@ -92,8 +106,8 @@ class MyServer( Node ):
 
 
         self.cmd('iperf3 -s -p 5001 &')
-        self.cmd('python http/webserver.py&')
-#        self.cmd('nginx -c /home/mininet/git/MPTCP/http/nginx.conf')
+#        self.cmd('python http/webserver.py&')
+        self.cmd('nginx -c /home/mininet/git/MPTCP/http/nginx.conf')
 
     def terminate( self ):
         self.popen("pgrep -f iperf3 | xargs kill ", shell=True).wait()
@@ -130,52 +144,84 @@ class NetworkTopo( Topo ):
         s1 = self.addSwitch('sw1')
         s2 = self.addSwitch('sw2')
         s3 = self.addSwitch('sw3')
+        s4 = self.addSwitch('sw4')
+        s5 = self.addSwitch('sw5')
 
-        router = self.addNode( 'r1', cls=MyRouter, ip='10.0.0.20/24' )
+
+        router1 = self.addNode( 'r1', cls=MyForwardingRouter, ip='10.0.1.20/24',
+                               defaultRoute='via 10.0.3.40')
+
+        router2 = self.addNode( 'r2', cls=MyForwardingRouter, ip='10.0.2.30/24',
+                               defaultRoute='via 10.0.4.40')
+
+
+        dpisim = self.addNode( 'r3', cls=MyRouter, ip='10.0.3.40/24', defaultRoute='via 10.0.5.50' )
 
         # cpu=0.5,
-        host = self.addHost( 'h1', ip='10.0.0.10/24', cls=MyHost, 
-                           defaultRoute='via 10.0.0.20' )
+        host = self.addHost( 'h1', ip='10.0.1.10/24', cls=MyHost, 
+                           defaultRoute='via 10.0.1.20' )
 
-        server = self.addNode( 's1', ip='10.0.2.30/24', cls=MyServer,
-                                defaultRoute='via 10.0.2.20' )
+        server = self.addNode( 's1', ip='10.0.5.50/24', cls=MyServer,
+                                defaultRoute='via 10.0.5.40' )
 
 
-        linkConfig1 = {'bw': 10, 'delay': '10ms', 'loss': 0, 'jitter': 0, 'max_queue_size': 2000 }
-        linkConfig2 = {'bw': 10, 'delay': '10ms', 'loss': 0, 'jitter': 0, 'max_queue_size': 2000 }
-
-        # router connections
-        self.addLink( s1, router, cls=MyTCLink, intfName2='r1-eth1', ip2='10.0.0.20/24', **linkConfig1)
-        self.addLink( s2, router, cls=MyTCLink, intfName2='r1-eth2', ip2='10.0.1.20/24', **linkConfig1)
-        self.addLink( s3, router, cls=MyTCLink, intfName2='r1-eth3', ip2='10.0.2.20/24', **linkConfig1)
+        linkConfig = {'bw': 50, 'delay': '1ms', 'loss': 0, 'jitter': 0, 'max_queue_size': 10000 }
+        linkConfig1 = {'bw': float(args.dsl_bw), 'delay': args.dsl_delay, 'loss': float(args.dsl_loss), 'jitter': args.dsl_jitter, 'max_queue_size': 10000 }
+        linkConfig2 = {'bw': float(args.lte_bw), 'delay': args.lte_delay, 'loss': float(args.lte_loss), 'jitter': args.lte_jitter, 'max_queue_size': 10000 }
+        linkConfig_server = {'bw': float(args.server_bw), 'delay': args.server_delay, 'loss': float(args.server_loss), 'jitter': args.server_jitter, 'max_queue_size': 10000 }
 
         # client connections
-        self.addLink( s1, host, cls=MyTCLink, intfName2='h1-eth1', ip2='10.0.0.10/24', **linkConfig1)
-        self.addLink( s2, host, cls=MyTCLink, intfName2='h1-eth2', ip2='10.0.1.10/24', **linkConfig1)
+        self.addLink( s1, host, cls=MyTCLink, intfName2='h1-eth1', ip2='10.0.1.10/24', **linkConfig)
+        self.addLink( s2, host, cls=MyTCLink, intfName2='h1-eth2', ip2='10.0.2.10/24', **linkConfig)
+
+        # router1 connections
+        self.addLink( s1, router1, cls=MyTCLink, intfName2='r1-eth1', ip2='10.0.1.20/24', **linkConfig1)
+        self.addLink( s3, router1, cls=MyTCLink, intfName2='r1-eth2', ip2='10.0.3.20/24', **linkConfig)
+
+        # router2 connections
+        self.addLink( s2, router2, cls=MyTCLink, intfName2='r2-eth1', ip2='10.0.2.30/24', **linkConfig2)
+        self.addLink( s4, router2, cls=MyTCLink, intfName2='r2-eth2', ip2='10.0.4.30/24', **linkConfig)
+    
+
+        # dpisim connections
+        self.addLink( s3, dpisim, cls=MyTCLink, intfName2='r3-eth1', ip2='10.0.3.40/24', **linkConfig)
+        self.addLink( s4, dpisim, cls=MyTCLink, intfName2='r3-eth2', ip2='10.0.4.40/24', **linkConfig)
+        self.addLink( s5, dpisim, cls=MyTCLink, intfName2='r3-eth3', ip2='10.0.5.40/24', **linkConfig)        
 
         # server connections
-        self.addLink( s3, server, cls=MyTCLink, intfName2='s1-eth1', ip2='10.0.2.30/24', **linkConfig2)
+        self.addLink( s5, server, cls=MyTCLink, intfName2='s1-eth1', ip2='10.0.5.50/24', **linkConfig_server)
     
 
 def run():
     "Test MPTCP"
     topo = NetworkTopo()
     net = Mininet( topo=topo )  
-    topo.setup_mptcp()
+
+    if args.no_mptcp:
+        topo.end_mptcp()
+    else:
+        topo.setup_mptcp()
+
     net.start()
 
     # route table for mptcp
     h1 = net.getNodeByName('h1')
-    h1.cmdPrint('ip rule add from 10.0.0.10 table 1')
-    h1.cmdPrint('ip route add 10.0.0.0/24 dev h1-eth1 scope link table 1')
-    h1.cmdPrint('ip route add default via 10.0.0.20 dev h1-eth1 table 1')
+    h1.cmdPrint('ip rule add from 10.0.1.10 table 1')
+    h1.cmdPrint('ip route add 10.0.1.0/24 dev h1-eth1 scope link table 1')
+    h1.cmdPrint('ip route add default via 10.0.1.20 dev h1-eth1 table 1')
 
-    h1.cmdPrint('ip rule add from 10.0.1.10 table 2')
-    h1.cmdPrint('ip route add 10.0.1.0/24 dev h1-eth2 scope link table 2')
-    h1.cmdPrint('ip route add default via 10.0.1.20 dev h1-eth2 table 2')
+    h1.cmdPrint('ip route add 10.0.4.0/24 via 10.0.2.30 dev h1-eth2')
+    h1.cmdPrint('ip rule add from 10.0.2.10 table 2')
+    h1.cmdPrint('ip route add 10.0.2.0/24 dev h1-eth2 scope link table 2')
+    h1.cmdPrint('ip route add default via 10.0.2.30 dev h1-eth2 table 2')
 
-#    h1.cmdPrint( 'echo $SHELL ; for d in $(ip li | awk \'BEGIN {FS=":"} /^[0-9]+:(.*):/ {print $2}\'  | grep -v lo | cut -d\'@\' -f 1); do ethtool -K $d tso off gso off tx off rx off; done')
-
+    # return routes for dpisim
+    dpisim = net.getNodeByName('r3')
+    dpisim.cmdPrint('ip route add 10.0.1.0/24 via 10.0.3.20 dev r3-eth1')
+    dpisim.cmdPrint('ip route add 10.0.2.0/24 via 10.0.4.30 dev r3-eth2')
+    dpisim.cmdPrint('iptables -A INPUT -s 10.0.2.10 -j DROP')
+    dpisim.cmdPrint('iptables -A INPUT -s 10.0.1.10 -j DROP')
+#    dpisim.cmdPrint('iptables -P INPUT DROP')
 
 
     info( '*** Routing Table on Router\n' )
@@ -183,16 +229,18 @@ def run():
     if args.cli:
         CLI( net )
     elif args.get:
-        sleep(1)
+        h1.cmd('sleep 1')
         if args.ifdown:
             h1 = net.getNodeByName('h1')
-            h1.cmd('(sleep 1 ; ip link set h1-eth%s down)&' % args.ifdown)
+            h1.cmd('(sleep 2 ; ./ifdown.sh {0} ; sleep 2 ; ./ifup.sh {0})&'.format(args.ifdown))
 
-        h1.sendCmd('mget --delete-after http://%s/%s' % (net.getNodeByName('s1').IP(), args.get))
+        h1.cmd('sleep 1')
+        for file in args.get:
+            h1.sendCmd('mget --delete-after http://{0}/{1}'.format(net.getNodeByName('s1').IP(), file))
+            print "waiting for the sender to finish"
+            h1.waitOutput()
+
         
-        
-        print "waiting for the sender to finish"
-        h1.waitOutput()
         sleep(1)
 
     net.stop()
@@ -201,6 +249,64 @@ def run():
 if __name__ == '__main__':
     setLogLevel( 'info' )
     parser = argparse.ArgumentParser(description="Topology bandwith and TCP tests")
+
+    parser.add_argument('--no_mptcp',
+                        help="disable mptcp",
+                        action='store_true')
+
+
+    parser.add_argument('--server_loss',
+                        help="packet loss percentage in the server side",
+                        default=0)
+
+    parser.add_argument('--server_jitter',
+                        help="packet jitter in ms in the server side",
+                        default=0)
+
+    parser.add_argument('--server_bw',
+                        help="bandwidth in mbps in the server side",
+                        default=5)
+
+    parser.add_argument('--server_delay',
+                        help="delay in ms in the server side",
+                        default='10ms')
+
+
+
+    parser.add_argument('--dsl_bw',
+                        help="bandwidth in mbps in the dsl side",
+                        default=5)
+
+    parser.add_argument('--dsl_delay',
+                        help="delay in ms in the dsl side",
+                        default='10ms')
+
+    parser.add_argument('--dsl_loss', 
+                        help="packet loss percentage in the dsl side",
+                        default=0)
+
+    parser.add_argument('--dsl_jitter', 
+                        help="packet jitter in ms in the dsl side",
+                        default=0)
+
+
+    parser.add_argument('--lte_bw',
+                        help="bandwidth in mbps in the lte side",
+                        default=5)
+
+    parser.add_argument('--lte_delay',
+                        help="delay in ms in the lte side",
+                        default='10ms')
+
+    parser.add_argument('--lte_loss', 
+                        help="packet loss percentage in the lte side",
+                        default=0)
+
+    parser.add_argument('--lte_jitter', 
+                        help="packet jitter in ms in the lte side",
+                        default=0)
+
+
      
     parser.add_argument('--dir', '-d',
                         help="Directory to store outputs",
@@ -210,7 +316,7 @@ if __name__ == '__main__':
                         action='store_true',
                         help='Run CLI for topology debugging purposes')
 
-    parser.add_argument('--get', '-g', help="HTTP get file")
+    parser.add_argument('--get', '-g', nargs='*', help="HTTP get file")
 
     parser.add_argument('--ifdown', '-i', help="get down some interface in h1")
 

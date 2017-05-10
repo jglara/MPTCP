@@ -1,0 +1,47 @@
+dpisim-configuration:
+    log-file:                        /home/mininet/git/MPTCP/sasn/dpi.logfile.log
+    flavour:                         sasn
+    enable-logs:                     True
+    dpi-all-logs:                    True
+    backend-config-file:             /home/mininet/git/MPTCP/sasn/basic.conf
+    output-section:
+        snapshot-cmd:                /home/mininet/git/MPTCP/sasn/full_snapshot.cmd
+        snapshot-output:             /home/mininet/git/MPTCP/sasn/snapshot.out
+    user-values-section:
+        service-set:
+                                     - default
+
+    routing:                         true
+    routing-timer:                   true
+
+    devDown:
+                                     - r3-eth3
+
+    devDownId:
+                                     30
+
+    devUp:
+                                     - r3-eth1
+                                     - r3-eth2
+
+    devUpId:
+                                     10, 20
+    filter-up:
+                                     - "tcp and src net 10.0.1.0/24"
+                                     - "tcp and src net 10.0.2.0/24"
+
+
+    filter-down:
+                                     - "tcp and src net 10.0.5.0/24"
+
+    injection-section:
+        cell-ip:
+                                     - 10.0.5.50
+                                     - 10.0.1.10
+                                     - 10.0.2.10
+
+        mask-address:
+                                     - 255.255.255.0
+                                     - 255.255.255.0
+                                     - 255.255.255.0
+
